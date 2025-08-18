@@ -1,48 +1,53 @@
 package com.dedupman.dedupman.controller;
 
-import com.dedupman.dedupman.service.DuplicateFileRemover;
-import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.util.*;
 
-@CrossOrigin(origins = "*") // Allow all origins (use specific origins in production)
 @RestController
 @RequestMapping("/api/files")
 public class FileController {
 
-    @Autowired
-    private DuplicateFileRemover duplicateFileRemover;
+    // ===== Existing endpoints =====
+    // Keep your existing methods here (e.g., detect by folder path, delete duplicates)
+    // Example:
+    // @PostMapping("/detect-duplicates")
+    // public ResponseEntity<Map<String, List<String>>> detectDuplicatesByFolder(...) { ... }
 
-    /**
-     * Detect duplicates without deleting
-     */
-    @PostMapping("/detect-duplicates")
-    public ResponseEntity<?> detectDuplicates(@RequestParam String folderPath) {
+    // ===== New endpoint for file uploads =====
+    @PostMapping("/detect-duplicates-upload")
+    public ResponseEntity<Map<String, List<String>>> detectDuplicatesUpload(
+            @RequestParam("files") List<MultipartFile> files) {
+
+        Map<String, List<String>> duplicates = new HashMap<>();
+
         try {
-            Map<String, List<String>> duplicates = duplicateFileRemover.findDuplicateFiles(folderPath);
+            Map<String, List<String>> fileHashes = new HashMap<>();
+
+            for (MultipartFile file : files) {
+                byte[] content = file.getBytes();
+                String hash = DigestUtils.sha256Hex(content);
+
+                fileHashes.computeIfAbsent(hash, k -> new ArrayList<>()).add(file.getOriginalFilename());
+            }
+
+            // Keep only duplicate groups
+            for (Map.Entry<String, List<String>> entry : fileHashes.entrySet()) {
+                if (entry.getValue().size() > 1) {
+                    duplicates.put(entry.getKey(), entry.getValue());
+                }
+            }
+
             return ResponseEntity.ok(duplicates);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("❌ Invalid folder path: " + e.getMessage());
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("❌ Error detecting duplicates: " + e.getMessage());
-        }
-    }
 
-    /**
-     * Delete duplicates
-     */
-    @PostMapping("/delete-duplicates")
-    public ResponseEntity<?> deleteDuplicates(@RequestParam String folderPath) {
-        try {
-            List<String> deletedFiles = duplicateFileRemover.deleteDuplicatesInFolder(folderPath);
-            return ResponseEntity.ok(deletedFiles);
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body("❌ Invalid folder path: " + e.getMessage());
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body("❌ Error deleting duplicates: " + e.getMessage());
+        } catch (IOException e) {
+            e.printStackTrace();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 }
