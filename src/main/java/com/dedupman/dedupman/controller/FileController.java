@@ -1,53 +1,56 @@
 package com.dedupman.dedupman.controller;
 
-import org.springframework.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.DigestUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
+@CrossOrigin(origins = "*") // Allow all origins
 @RestController
 @RequestMapping("/api/files")
 public class FileController {
 
-    // ===== Existing endpoints =====
-    // Keep your existing methods here (e.g., detect by folder path, delete duplicates)
-    // Example:
-    // @PostMapping("/detect-duplicates")
-    // public ResponseEntity<Map<String, List<String>>> detectDuplicatesByFolder(...) { ... }
+    @Autowired
+    private DuplicateFileRemover duplicateFileRemover;
 
-    // ===== New endpoint for file uploads =====
-    @PostMapping("/detect-duplicates-upload")
-    public ResponseEntity<Map<String, List<String>>> detectDuplicatesUpload(
-            @RequestParam("files") List<MultipartFile> files) {
-
-        Map<String, List<String>> duplicates = new HashMap<>();
-
+    /**
+     * Detect duplicates from uploaded files
+     */
+    @PostMapping("/detect-duplicates")
+    public ResponseEntity<?> detectDuplicates(@RequestParam("files") MultipartFile[] files) {
         try {
-            Map<String, List<String>> fileHashes = new HashMap<>();
-
-            for (MultipartFile file : files) {
-                byte[] content = file.getBytes();
-                String hash = DigestUtils.sha256Hex(content);
-
-                fileHashes.computeIfAbsent(hash, k -> new ArrayList<>()).add(file.getOriginalFilename());
+            if (files == null || files.length == 0) {
+                return ResponseEntity.badRequest().body("❌ No files uploaded");
             }
 
-            // Keep only duplicate groups
-            for (Map.Entry<String, List<String>> entry : fileHashes.entrySet()) {
-                if (entry.getValue().size() > 1) {
-                    duplicates.put(entry.getKey(), entry.getValue());
-                }
-            }
-
+            Map<String, List<String>> duplicates = duplicateFileRemover.findDuplicateFilesFromUploads(files);
             return ResponseEntity.ok(duplicates);
 
-        } catch (IOException e) {
+        } catch (Exception e) {
             e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return ResponseEntity.internalServerError().body("❌ Error detecting duplicates: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Delete duplicate uploaded files
+     */
+    @PostMapping("/delete-duplicates")
+    public ResponseEntity<?> deleteDuplicates(@RequestParam("files") MultipartFile[] files) {
+        try {
+            if (files == null || files.length == 0) {
+                return ResponseEntity.badRequest().body("❌ No files uploaded");
+            }
+
+            List<String> deletedFiles = duplicateFileRemover.deleteDuplicatesFromUploads(files);
+            return ResponseEntity.ok(deletedFiles);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().body("❌ Error deleting duplicates: " + e.getMessage());
         }
     }
 }

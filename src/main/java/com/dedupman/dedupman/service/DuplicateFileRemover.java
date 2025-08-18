@@ -2,15 +2,18 @@ package com.dedupman.dedupman.service;
 
 import com.dedupman.dedupman.util.FileHashUtil;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
-import java.util.*;
+import java.io.InputStream;
 import java.nio.file.Files;
+import java.security.MessageDigest;
+import java.util.*;
 
 @Service
 public class DuplicateFileRemover {
 
-    // ✅ Detect duplicates (without deleting)
+    // ================= Folder Path Methods =================
     public Map<String, List<String>> findDuplicateFiles(String folderPath) {
         Map<String, List<String>> duplicates = new HashMap<>();
         Map<String, String> seenFiles = new HashMap<>();
@@ -52,7 +55,6 @@ public class DuplicateFileRemover {
         }
     }
 
-    // ✅ Delete duplicates (keep first file, delete rest)
     public List<String> deleteDuplicatesInFolder(String folderPath) {
         List<String> deletedFiles = new ArrayList<>();
         Map<String, File> seenFiles = new HashMap<>();
@@ -93,5 +95,58 @@ public class DuplicateFileRemover {
                 }
             }
         }
+    }
+
+    // ================= Uploaded File Methods =================
+    public Map<String, List<String>> findDuplicateFilesFromUploads(MultipartFile[] files) throws Exception {
+        Map<String, List<String>> hashMap = new HashMap<>();
+
+        for (MultipartFile file : files) {
+            byte[] fileBytes;
+            try (InputStream is = file.getInputStream()) {
+                fileBytes = is.readAllBytes();
+            }
+
+            String hash = getMD5Hash(fileBytes);
+            hashMap.computeIfAbsent(hash, k -> new ArrayList<>()).add(file.getOriginalFilename());
+        }
+
+        // Only keep duplicates
+        Map<String, List<String>> duplicates = new HashMap<>();
+        for (Map.Entry<String, List<String>> entry : hashMap.entrySet()) {
+            if (entry.getValue().size() > 1) duplicates.put(entry.getKey(), entry.getValue());
+        }
+
+        return duplicates;
+    }
+
+    public List<String> deleteDuplicatesFromUploads(MultipartFile[] files) throws Exception {
+        Map<String, MultipartFile> seenFiles = new HashMap<>();
+        List<String> deletedFiles = new ArrayList<>();
+
+        for (MultipartFile file : files) {
+            byte[] fileBytes;
+            try (InputStream is = file.getInputStream()) {
+                fileBytes = is.readAllBytes();
+            }
+
+            String hash = getMD5Hash(fileBytes);
+
+            if (seenFiles.containsKey(hash)) {
+                deletedFiles.add(file.getOriginalFilename()); // mark as duplicate
+            } else {
+                seenFiles.put(hash, file);
+            }
+        }
+
+        return deletedFiles;
+    }
+
+    private String getMD5Hash(byte[] bytes) throws Exception {
+        MessageDigest md = MessageDigest.getInstance("MD5");
+        byte[] digest = md.digest(bytes);
+        StringBuilder sb = new StringBuilder();
+        for (byte b : digest) sb.append(String.format("%02x", b));
+        return sb.toString();
     }
 }
